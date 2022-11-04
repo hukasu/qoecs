@@ -1,7 +1,5 @@
 use std::fmt::Display;
 
-use paste::paste;
-
 #[derive(Debug)]
 pub enum ECSError {
     ArrayResourceWriteOutOfBoundsError
@@ -24,13 +22,15 @@ macro_rules! create_ecs {
         $entity_id_ident:ident,
         Resources($($resource_name:ident => $resource_ty:ty),*),
         ArrayResources($($arr_resource_name:ident => [$arr_resource_ty:ty; $arr_resource_len:literal]),*),
+        MapResources($($map_resource_name:ident => <$map_resource_key_type:ty, $map_resource_value_type:ty>),*),
         OptionalResources($($opt_resource_name:ident => $opt_resource_ty:ty),*)
     ) => {
-        paste! { 
+        paste::paste! { 
         pub struct $name {
             entities: Vec<$entity_id_ident>,
             $([<resource_ $resource_name>]: $resource_ty,)*
             $([<resource_ $arr_resource_name>]: [$arr_resource_ty; $arr_resource_len],)*
+            $([<resource_ $map_resource_name>]: std::collections::HashMap<$map_resource_key_type, $map_resource_value_type>,)*
             $([<resource_ $opt_resource_name>]: Option<$opt_resource_ty>,)*
         }
 
@@ -41,6 +41,7 @@ macro_rules! create_ecs {
                     entities: vec![],
                     $([<resource_ $resource_name>]: $resource_ty::default(),)*
                     $([<resource_ $arr_resource_name>]: [$arr_resource_ty::default(); $arr_resource_len],)*
+                    $([<resource_ $map_resource_name>]: std::collections::HashMap::new(),)*
                     $([<resource_ $opt_resource_name>]: None,)*
                 }
             }
@@ -103,6 +104,35 @@ macro_rules! create_ecs {
             }
             )*
 
+            // Creating Array Resource methods
+            $(
+            /// Write a value to Map Resource for key
+            fn [<write_resource_ $map_resource_name>](
+                &mut self,
+                [<$map_resource_name _key>]: $map_resource_key_type,
+                [<$map_resource_name _value>]: $map_resource_value_type
+            ) -> Option<$map_resource_value_type> {
+                self.[<resource_ $map_resource_name>].insert(
+                    [<$map_resource_name _key>],
+                    [<$map_resource_name _value>]
+                )
+            }
+
+            /// Clear all values of Array Resource
+            fn [<clear_resource_ $map_resource_name>](&mut self) {
+                self.[<resource_ $map_resource_name>].clear();
+            }
+
+            /// Get the value of Map Resource for key
+            #[cfg(test)]
+            fn [<get_resource_ $map_resource_name>](
+                &self,
+                [<$map_resource_name _key>]: $map_resource_key_type
+            ) -> Option<&$map_resource_value_type> {
+                self.[<resource_ $map_resource_name>].get(&[<$map_resource_name _key>])
+            }
+            )*
+
             // Creating Optional Resource methods
             $(
             /// Writes a value to Optional Resource
@@ -127,110 +157,4 @@ macro_rules! create_ecs {
         }
         } // paste! end
     };
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    type U64Map = std::collections::HashMap<u64, u64>;
-
-    create_ecs!(
-        TestECS1,
-        u64,
-        Resources(time => u64),
-        ArrayResources(),
-        OptionalResources()
-    );
-
-    create_ecs!(
-        TestECS2,
-        u64,
-        Resources(),
-        ArrayResources(seq => [u64; 10]),
-        OptionalResources()
-    );
-
-    create_ecs!(
-        TestECS3,
-        u64,
-        Resources(),
-        ArrayResources(),
-        OptionalResources(gravity => f32)
-    );
-
-    #[test]
-    fn has_entity_on_empty_ecs() {
-        let ecs = TestECS1::new();
-        assert!(!ecs.has_entity(0));
-    }
-
-    #[test]
-    fn required_resource_test() {
-        let mut ecs = TestECS1::new();
-        assert_eq!(ecs.get_resource_time(), &0);
-        
-        ecs.write_resource_time(100);
-        assert_eq!(ecs.get_resource_time(), &100);
-        
-        ecs.write_resource_time(200);
-        assert_eq!(ecs.get_resource_time(), &200);
-    }
-
-    #[test]
-    fn array_resource_test() -> Result<(), ECSError> {
-        let mut ecs = TestECS2::new();
-        for i in 0..10 {
-            assert_eq!(ecs.get_resource_seq(i)?, &0);
-        }
-        
-        ecs.write_resource_seq(100, 0)?;
-        assert_eq!(ecs.get_resource_seq(0)?, &100);
-        for i in 1..10 {
-            assert_eq!(ecs.get_resource_seq(i)?, &0);
-        }
-
-        for i in 1..10 {
-            ecs.write_resource_seq(i, i as usize)?;
-        }
-        for i in 1..10 {
-            assert_eq!(ecs.get_resource_seq(i)?, &(i as u64));
-        }
-        
-        ecs.clear_resource_seq();
-        for i in 0..10 {
-            assert_eq!(ecs.get_resource_seq(i)?, &0);
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn array_resource_outofbound_test() {
-        let mut ecs = TestECS2::new();
-        match ecs.write_resource_seq(42, 42) {
-            Err(ECSError::ArrayResourceWriteOutOfBoundsError) => (),
-            _ => panic!("Should return Out of Bound Error")
-        };
-        match ecs.get_resource_seq(42) {
-            Err(ECSError::ArrayResourceWriteOutOfBoundsError) => (),
-            _ => panic!("Should return Out of Bound Error")
-        };
-    }
-
-    #[test]
-    fn optional_resource_test() {
-        let mut ecs = TestECS3::new();
-        assert_eq!(ecs.get_resource_gravity(), None);
-        
-        ecs.write_resource_gravity(0.42);
-        assert!(
-            match ecs.get_resource_gravity() {
-                Some(v) => (v - 0.42) < 0.00001,
-                None => false
-            }
-        );
-        
-        ecs.clear_resource_gravity();
-        assert_eq!(ecs.get_resource_gravity(), None);
-    }
 }
