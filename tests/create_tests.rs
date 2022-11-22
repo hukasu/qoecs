@@ -34,7 +34,7 @@ create_ecs!(
     OptionalResources(gravity => f32),
     Archtypes(
         Entity(
-            mob => u64,
+            mob,
             Components(
                 position => crate::PositionComponent,
                 clone_position => crate::PositionComponent,
@@ -42,7 +42,7 @@ create_ecs!(
             )
         ),
         Entity(
-            item => u64,
+            item,
             Components(
                 weapon => crate::WeaponComponent,
                 armor => crate::ArmorComponent,
@@ -154,7 +154,8 @@ fn optional_resource_test() {
 #[test]
 fn archtype_test() {
     let mut ecs = TestECS::new();
-    assert!(!ecs.has_mob(0));
+    let mob_id = id::MobEntityId::new(0);
+    assert!(!ecs.has_mob(&mob_id));
 
     let mob_pos = Some(PositionComponent{x: 0., y: 0.});
     let mob_clone_pos: Option<PositionComponent> = None;
@@ -166,27 +167,31 @@ fn archtype_test() {
         velocity: mob_vel.clone()
     };
     let mob_id = ecs.create_mob(
-        0,
+        mob_id,
         mob,
         ECSEntityCreateConflictResolution::Error
     ).unwrap();
+    assert!(ecs.has_mob(&mob_id));
+    // Duplicate to make sure value is not being moved out of vector
+    assert!(ecs.has_mob(&mob_id));
 
     let mob = entity::MobEntity {
         position: mob_pos.clone(),
         clone_position: mob_clone_pos.clone(),
         velocity: mob_vel.clone()
     };
+    let mob_id_dup = id::MobEntityId::new(0);
     if let Ok(_) = ecs.create_mob(
-        mob_id,
+        mob_id_dup,
         mob,
         ECSEntityCreateConflictResolution::Error
     ) {
         panic!("Should error on duplicate entity.")
     }
 
-    assert_eq!(mob_pos.as_ref(), ecs.get_position_of_mob(mob_id));
-    assert_eq!(mob_clone_pos.as_ref(), ecs.get_clone_position_of_mob(mob_id));
-    assert_eq!(mob_vel.as_ref(), ecs.get_velocity_of_mob(mob_id));
+    assert_eq!(mob_pos.as_ref(), ecs.get_position_of_mob(&mob_id));
+    assert_eq!(mob_clone_pos.as_ref(), ecs.get_clone_position_of_mob(&mob_id));
+    assert_eq!(mob_vel.as_ref(), ecs.get_velocity_of_mob(&mob_id));
 
     if let Some(
         entity::MobEntityView {
@@ -194,7 +199,7 @@ fn archtype_test() {
             clone_position: clone_pos_view,
             velocity: vel_view,
         }
-    ) = ecs.get_mob(mob_id) {
+    ) = ecs.get_mob(&mob_id) {
         assert_eq!(mob_pos.as_ref(), pos_view);
         assert_eq!(mob_clone_pos.as_ref(), clone_pos_view);
         assert_eq!(mob_vel.as_ref(), vel_view);

@@ -62,7 +62,7 @@ macro_rules! create_ecs {
         Archtypes(
             $(
                 Entity(
-                    $entity_name:ident => $entity_id_type:ty,
+                    $entity_name:ident,
                     // ECS Entity archtype Components
                     Components(
                         $(
@@ -74,6 +74,81 @@ macro_rules! create_ecs {
         )
     ) => {
         paste::paste! { 
+        mod id {
+            $(
+                #[derive(Clone, Debug)]
+                pub struct [<$entity_name:camel EntityId>] {
+                    id: usize,
+                    generation: usize,
+                    valid: bool
+                }
+
+                impl [<$entity_name:camel EntityId>] {
+                    /// Creates a new entity Id
+                    pub fn new(id: usize) -> Self {
+                        [<$entity_name:camel EntityId>] {
+                            id,
+                            generation: 0,
+                            valid: true
+                        }
+                    }
+
+                    /// Creates a new entity Id in a invalid state
+                    pub fn new_invalidated(id: usize) -> Self {
+                        [<$entity_name:camel EntityId>] {
+                            id,
+                            generation: 0,
+                            valid: false
+                        }
+                    }
+
+                    /// Returns Id valid state
+                    pub fn is_valid(&self) -> bool {
+                        self.valid
+                    }
+
+                    /// Invalidates entity Id
+                    fn invalidate(&mut self) {
+                        self.valid = false;
+                    }
+
+                    /// Recovers Id to a valid state advancing generation
+                    fn revalidate(&mut self) {
+                        self.valid = true;
+                        self.generation = self.generation + 1;
+                    }
+
+                    pub fn get_id(&self) -> &usize {
+                        &self.id
+                    }
+                }
+
+                impl PartialEq for [<$entity_name:camel EntityId>] {
+                    /// Compares if two entities have Id and are from
+                    /// the same generation
+                    fn eq(&self, rhs: &Self) -> bool {
+                        (self.id == rhs.id) && (self.generation == rhs.generation)
+                    }
+                }
+
+                impl PartialOrd for [<$entity_name:camel EntityId>] {
+                    /// Compares the Ids of two entities
+                    fn partial_cmp(&self, rhs: &Self) -> Option<std::cmp::Ordering> {
+                        Some(self.id.cmp(&rhs.id))
+                    }
+                }
+
+                impl Eq for [<$entity_name:camel EntityId>] {}
+
+                impl Ord for [<$entity_name:camel EntityId>] {
+                    /// Compares the Ids of two entities
+                    fn cmp(&self, rhs: &Self) -> std::cmp::Ordering {
+                        self.id.cmp(&rhs.id)
+                    }
+                }
+            )*
+        }
+
         mod entity {
             $(
                 pub struct [<$entity_name:camel Entity>] {
@@ -83,7 +158,7 @@ macro_rules! create_ecs {
                 pub struct [<$entity_name:camel EntityView>]<'a> {
                     $(pub $comp_name: Option<&'a $comp_type>),*
                 }
-            )+
+            )*
         }
 
         struct $name {
@@ -98,10 +173,10 @@ macro_rules! create_ecs {
             // Archtype member properties
             $(
                 // Entity vector member property
-                $entity_name: Vec<$entity_id_type>,
+                $entity_name: Vec<id::[<$entity_name:camel EntityId>]>,
                 // Entity components member properties
                 $(
-                    [<$entity_name _ $comp_name>]: Vec<($entity_id_type, $comp_type)>,
+                    [<$entity_name _ $comp_name>]: Vec<(usize, $comp_type)>,
                 )*
             )+
         }
@@ -230,9 +305,12 @@ macro_rules! create_ecs {
             // Creating Entity Archtype methods
             $(
                 /// Checks if ID has valid entity
-                fn [<has_ $entity_name>](&self, [<$entity_name _id>]: $entity_id_type) -> bool {
-                    match self.[<$entity_name>].binary_search(&[<$entity_name _id>]) {
-                        Ok(_) => true,
+                fn [<has_ $entity_name>](&self, [<$entity_name _id>]: &id::[<$entity_name:camel EntityId>]) -> bool {
+                    match self.[<$entity_name>].binary_search([<$entity_name _id>]) {
+                        Ok(ind) => {
+                            let ent = &self.[<$entity_name>][ind];
+                            ent.is_valid()
+                        },
                         Err(_) => false
                     }
                 }
@@ -241,18 +319,18 @@ macro_rules! create_ecs {
                     /// Adds a component to a Entity
                     fn [<add_ $comp_name _to_ $entity_name>](
                         &mut self,
-                        [<$entity_name _id>]: &$entity_id_type,
+                        [<$entity_name _id>]: &id::[<$entity_name:camel EntityId>],
                         $comp_name: $comp_type
                     ) {
                         let pos = self.[<$entity_name _ $comp_name>].binary_search_by_key(
-                            [<$entity_name _id>],
+                            [<$entity_name _id>].get_id(),
                             |kv| kv.0
                         );
                         match pos {
                             Ok(ind) => self.[<$entity_name _ $comp_name>][ind].1 = $comp_name,
                             Err(ind) => self.[<$entity_name _ $comp_name>].insert(
                                 ind,
-                                (*[<$entity_name _id>], $comp_name)
+                                (*[<$entity_name _id>].get_id(), $comp_name)
                             )
                         };
                     }
@@ -261,13 +339,16 @@ macro_rules! create_ecs {
                 /// Creates a new entity with given Id and Components
                 fn [<_create_ $entity_name>](
                     &mut self,
-                    [<$entity_name _id>]: $entity_id_type,
+                    [<$entity_name _id>]: id::[<$entity_name:camel EntityId>],
                     $entity_name: entity::[<$entity_name:camel Entity>]
-                ) -> $entity_id_type{
-                    match self.[<$entity_name>].binary_search(&[<$entity_name _id>]) {
-                        Ok(ind) => (),
-                        Err(ind) => self.[<$entity_name>].insert(ind, [<$entity_name _id>])
-                    }
+                ) -> id::[<$entity_name:camel EntityId>] {
+                    let id = match self.[<$entity_name>].binary_search(&[<$entity_name _id>]) {
+                        Ok(ind) => self.[<$entity_name>][ind].clone(),
+                        Err(ind) => {
+                            self.[<$entity_name>].insert(ind, [<$entity_name _id>]);
+                            self.[<$entity_name>][ind].clone()
+                        }
+                    };
 
                     let entity::[< $entity_name:camel Entity>] {
                         $($comp_name: $comp_name),*
@@ -275,10 +356,10 @@ macro_rules! create_ecs {
 
                     $(
                         if let Some(comp) = $comp_name {
-                            self.[<add_ $comp_name _to_ $entity_name>](&[<$entity_name _id>], comp);
+                            self.[<add_ $comp_name _to_ $entity_name>](&id, comp);
                         }
                     )*
-                    [<$entity_name _id>]
+                    id
                 }
 
                 /// Creates a new entity with given Id and Components
@@ -294,25 +375,34 @@ macro_rules! create_ecs {
                 /// | Replace | Returns Id replacing existing entity. |  
                 fn [<create_ $entity_name>](
                     &mut self,
-                    [<$entity_name _id>]: $entity_id_type,
+                    [<$entity_name _id>]: id::[<$entity_name:camel EntityId>],
                     $entity_name: entity::[<$entity_name:camel Entity>],
                     conflict_resolution: ECSEntityCreateConflictResolution
-                ) -> Result<$entity_id_type, ECSError> {
-                    let exists = self.[<has_ $entity_name>]([<$entity_name _id>]);
+                ) -> Result<id::[<$entity_name:camel EntityId>], ECSError> {
+                    let exists = self.[<has_ $entity_name>](&[<$entity_name _id>]);
                     match (conflict_resolution, exists) {
                         (ECSEntityCreateConflictResolution::Error, true) => Err(ECSError::EntityIdInUseError),
-                        (ECSEntityCreateConflictResolution::Ignore, true) => Ok([<$entity_name _id>]),
+                        (ECSEntityCreateConflictResolution::Ignore, true) => {
+                            let id = match self.[<$entity_name>].binary_search(&[<$entity_name _id>]) {
+                                Ok(ind) => self.[<$entity_name>][ind].clone(),
+                                Err(_) => panic!("Test for existence of entity returned true, and then false.")
+                            };
+                            Ok(id)
+                        },
                         (_) => Ok(self.[<_create_ $entity_name>]([<$entity_name _id>], $entity_name))
                     }
                 }
 
                 // Entity components methods
-                fn [<get_ $entity_name>]<'a>(&'a self, [<$entity_name _id>]: $entity_id_type) -> Option<entity::[<$entity_name:camel EntityView>]> {
+                fn [<get_ $entity_name>]<'a>(
+                    &'a self,
+                    [<$entity_name _id>]: &id::[<$entity_name:camel EntityId>]
+                ) -> Option<entity::[<$entity_name:camel EntityView>]> {
                     match self.[<$entity_name>].binary_search(&[<$entity_name _id>]) {
                         Ok(ind) => {
                             Some(
                                 entity::[<$entity_name:camel EntityView>] {
-                                    $($comp_name: self.[<get_ $comp_name _of_ $entity_name>]([<$entity_name _id>])),*
+                                    $($comp_name: self.[<get_ $comp_name _of_ $entity_name>](&[<$entity_name _id>])),*
                                 }
                             )
                         },
@@ -322,9 +412,12 @@ macro_rules! create_ecs {
 
                 $(
                     /// Gets the Component from the entity of Id
-                    fn [<get_ $comp_name _of_ $entity_name>]<'a>(&'a self, [<$entity_name _id>]: $entity_id_type) -> Option<&'a $comp_type> {
+                    fn [<get_ $comp_name _of_ $entity_name>]<'a>(
+                        &'a self,
+                        [<$entity_name _id>]: &id::[<$entity_name:camel EntityId>]
+                    ) -> Option<&'a $comp_type> {
                         match self.[<$entity_name _ $comp_name>].binary_search_by_key(
-                            &[<$entity_name _id>], |kc| { kc.0 }
+                            [<$entity_name _id>].get_id(), |kc| { kc.0 }
                         ) {
                             Ok(real_index) => {
                                 match self.[<$entity_name _ $comp_name>].get(real_index) {

@@ -17,7 +17,7 @@ create_ecs!(
     OptionalResources(gravity => f32), // Optional resources
     Archtypes( // Entity archtypes
         Entity( // First entity archtype
-            mob => u64,
+            mob,
             Components(
                 position => crate::PositionComponent,
                 clone_position => crate::PositionComponent,
@@ -25,7 +25,7 @@ create_ecs!(
             )
         ),
         Entity( // Second entity archtype
-            item => u64,
+            item,
             Components(
                 weapon => crate::WeaponComponent,
                 armor => crate::ArmorComponent,
@@ -48,12 +48,7 @@ A list of TODOs.
 | Delete entity | Create method to delete entities |
 | Remove component | Create method to remove component from entities |
 | Entity iterator | Create iterator to iterate over entities |
-| Generational ID | Create struct to hold generational ID |
 | Systems | Create systems to update entities |
 
 ## Changelog
-### 2022-11-22
-* Create methods to create entities
-* Create methods to recover entities
-* Create methods to create component to entity
-* Create methods to recover component to entity
+See changelog [here](CHANGELOG.md)
